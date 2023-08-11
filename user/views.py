@@ -8,6 +8,7 @@ from .serializers import RegisterSerializer, ParticipantSerializer,ScoreSerializ
 from .models import Participant,Pair
 from competion.models import  Competition
 from django.db.models import Max
+from django.core import  exceptions
 from rest_framework.decorators import api_view
 from django.contrib.auth import logout
 from rest_framework.permissions import IsAuthenticated
@@ -30,12 +31,11 @@ def get_tokens_for_user(user):
 ''''''
 
 @api_view(['POST'])
-def tlevel(request,uuid):
+def tlevel(request,uuid,level):
     competition = Competition.objects.get(competition_id = uuid)
-    n = Participant.objects.count()
-    competition.level = competition.levels(n)
-    competition.save()
-    return Response({'total_level':competition.levels(n)},status=status.HTTP_201_CREATED)
+    n = Participant.objects.filter(level = level,competition = competition).count()
+    next = False if n == 1 else True
+    return Response({f'participants':n,'next_level':next},status=status.HTTP_201_CREATED)
 '''API view for user login'''
      
 class LoginAPI(APIView):
@@ -89,65 +89,84 @@ class RegisterAPI(APIView):
 class PairView(APIView):
     def post(self, request,level):
         query = list(Participant.objects.filter(level = level).values('participant_id', 'competition','level'))
+        print('query',query)
         pairs = []
         if len(query) % 2 != 0:
-            query.append(None)
+            print('numbers are odd')
+            query.append(
+                {
+                "participant_id": "computer",
+                "competition": query[0]['competition'],
+                "level": level
+            })
+        try:
+            for i in range(0, len(query), 2):
 
-        for i in range(0, len(query), 2):
-            participant1_id = query[i]['participant_id']
-            participant2_id = query[i + 1]['participant_id'] if query[i + 1] is not None else None
-
-            try:
-                participant1 = Participant.objects.get(participant_id=participant1_id)
-                participant2 = Participant.objects.get(participant_id=participant2_id) if participant2_id is not None else None
                 competition = Competition.objects.get(competition_id=query[i]['competition'])
-                if not Pair.objects.filter(player=participant1, opponent=participant2, competition=competition):
-                    selected_pair= Pair.objects.create(player=participant1, opponent=participant2, competition=competition)
-                    pair = {
-                        'match_id': selected_pair.match_id,
-                        'player': selected_pair.player.user.username if selected_pair.player.user is not None else '',
-                        'opponent': selected_pair.opponent.user.username if selected_pair.opponent is not None else 'computer player',
-                        'competition': query[i]['competition'],
-                        'level':participant1.level
-                    }
-
-                    if participant2_id is not None:
-                        reverse_pair = {
-                            'match_id': selected_pair.match_id,
-                            'player': selected_pair.opponent.user.username if selected_pair.opponent is not None else 'computer player',
-                            'opponent': selected_pair.player.user.username if selected_pair.player.user is not None else '',
-                            'competition': query[i]['competition'],
-                            'level':participant1.level
-                        }
-                    pairs.append(reverse_pair)
-                    pairs.append(pair)
-                    
-                else:
-                    match = list(Pair.objects.all())
-                    for i in match:
-                        print(i)
-                        pairs.append({
-                            'match_id': i.match_id,
-                            'player': i.player.user.username if i.player.user is not None else '',
-                            'opponent': i.opponent.user.username if i.opponent is not None else 'computer player',
-                            'competition': i.competition.competition_id,
-                            'level':i.player.level
-                        })
-                        pairs.append({
-                            'match_id': i.match_id,
-                            'player':i.opponent.user.username if i.opponent is not None else 'computer player',
-                            'opponent': i.player.user.username if i.player.user is not None else '',
-                            'competition': i.competition.competition_id,
-                            'level':i.player.level
-                        })
-                    
-                
-                return Response({'pair': pairs}, status=status.HTTP_201_CREATED)
+                participant1 = Participant.objects.get(participant_id=query[i]['participant_id'])
 
 
-            except Exception as e:
-                print(e)
-                return Response({'pair': str(e)}, status=status.HTTP_201_CREATED)
+                try:
+                    participant2 = Participant.objects.get(participant_id=query[i + 1]['participant_id'])
+                    print('participant1',participant1.user.username,'participant2',participant2.user.username)
+                    if not Pair.objects.filter(player=participant1, opponent=participant2, competition=competition):
+                        new_pair = Pair.objects.create(
+                            player=participant1,
+                            opponent=participant2,
+                            competition=competition,
+                            level = level)
+                        print('new pair',new_pair.player.user.username,new_pair.opponent.user.username)
+                    else:
+                        print('Not working')
+
+                except exceptions.ValidationError as e:
+                    print('no except')
+                    participant2 = 'computer player'
+                    print('validation error',e)
+
+                    if not Pair.objects.filter(player=participant1,opponent = None, competition=competition):
+                        new_pair = Pair.objects.create(
+                            player=participant1,
+                            competition=competition,
+                            level = level)
+                        print('new pair computer player', new_pair.player.user.username, new_pair.opponent.user.username)
+
+            return Response({'pair': pairs}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            print('exception :',e)
+            return Response({'error':str(e)},status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request, level):
+        pairs = []
+        try:
+            match = Pair.objects.filter(level = level)
+            for i in match:
+                print({
+                        'match_id': i.match_id,
+                        'player': i.player.user.username,
+                        'opponent': i.opponent.user.username if i.opponent is not None else 'computer player',
+                        'competition': i.competition.competition_id,
+                        'level': i.level
+                    })
+                pairs.append({
+                        'match_id': i.match_id,
+                        'player': i.player.user.username,
+                        'opponent': i.opponent.user.username if i.opponent is not None else 'computer player',
+                        'competition': i.competition.competition_id,
+                        'level': i.level
+                    })
+                pairs.append({
+                    'match_id': i.match_id,
+                    'player': i.opponent.user.username if i.opponent is not None else 'computer player',
+                    'opponent': i.player.user.username,
+                    'competition': i.competition.competition_id,
+                    'level': i.level
+                })
+            return Response({'pair': pairs}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(e)
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class ParticipantViews(APIView):
@@ -202,31 +221,36 @@ def scoreput(request,participant_uuid):
 def winner(request, match_uuid):
     try:
         pair = Pair.objects.get(match_id=match_uuid)
+        print('pair level :',pair.level)
         scores = [pair.player.Score, pair.opponent.Score if pair.opponent is not None else 0]
+        print('scores :',scores)
         if max(scores):
             winner_score = max(scores)
-
+            print('winner score :',winner_score)
             if scores.index(winner_score) == 0:
+
                 pair.winner = pair.player
-                pair.player.level += 1
+                pair.player.level = pair.level + 1
                 print(pair.player.level)# Increment player's score
                 pair.player.save()
                 print('!!!!!!!!!!!!!!!!winner is saved!!!!!!!!!!!!!!!!')
                 print('!!!!!!!!!!!!!!!!level is incremented!!!!!!!!!!!!!!!!')
-
+                print('final level :',pair.player.level)
             elif scores.index(winner_score) == 1:
                 pair.winner = pair.opponent
                 if pair.opponent:
                     print(pair.opponent.level)
-                    pair.opponent.level += 1  # Increment opponent's score
+                    pair.opponent.level = pair.level + 1 # Increment opponent's score
                     pair.opponent.save()
                 print('!!!!!!!!!!!!!!!!winner is saved!!!!!!!!!!!!!!!!')
                 print('!!!!!!!!!!!!!!!!level is incremented!!!!!!!!!!!!!!!!')
-
+                print('final level :',pair.opponent.level)
             pair.save()  # Save the winner in the pair object
         elif scores[0] == scores[1]:
             pair.winner = pair.player
-            pair.save()
+            pair.player.level = pair.level + 1
+            pair.player.save()
+            print('\n\n final level in case of same score :',pair.player.level,'\n name :',pair.player.user.username)
 
     except Exception as e:
         print(e)
