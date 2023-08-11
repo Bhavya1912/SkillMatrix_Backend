@@ -23,7 +23,10 @@ class Question(models.Model):
     
     
 
-
+class T_F(models.Model):
+    question = models.ForeignKey(Question,on_delete=models.CASCADE)
+    answer=models.BooleanField()
+    correctanswer=models.BooleanField()  
 
     
 class SavedAnswers(models.Model):
@@ -37,3 +40,6 @@ class SavedAnswers(models.Model):
 
     def __str__(self):
         return str(self.saved_answers_id)
+
+
+
