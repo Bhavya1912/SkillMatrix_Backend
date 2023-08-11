@@ -7,7 +7,10 @@ class QuestionSerializer(serializers.ModelSerializer):
         model = Question
         fields = '__all__'
         
-        
+ class T_FSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = T_F
+        fields = '__all__'       
 
 # class SavedAnswersSerializer(serializers.ModelSerializer):
 #     class Meta:
